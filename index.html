@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Task Color</title>
+  <style>
+    body {
+      margin: 0;
+      padding: var(--s2);
+      font-family: var(--font-primary-stack);
+      background: var(--bg);
+      color: var(--text-color);
+    }
+
+    h2 {
+      margin: 0 0 var(--s2) 0;
+      font-size: 1.1em;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: var(--s);
+      margin-bottom: var(--s2);
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      flex: 2;
+      min-width: 180px;
+      padding: var(--s) var(--s);
+      border-radius: var(--card-border-radius);
+      border: 1px solid var(--divider-color);
+      background: var(--card-bg);
+      color: var(--text-color);
+      font-family: var(--font-primary-stack);
+      font-size: 1em;
+    }
+
+    .toolbar-select {
+      flex: 1;
+      min-width: 100px;
+      padding: var(--s) var(--s);
+      border-radius: var(--card-border-radius);
+      border: 1px solid var(--divider-color);
+      background: var(--card-bg);
+      color: var(--text-color);
+      font-family: var(--font-primary-stack);
+      font-size: 1em;
+    }
+
+    .btn-settings {
+      background: transparent;
+      border: 1px solid var(--divider-color);
+      color: var(--text-color);
+      padding: var(--s) var(--s);
+      border-radius: var(--card-border-radius);
+      cursor: pointer;
+      font-family: var(--font-primary-stack);
+      font-size: 1em;
+      white-space: nowrap;
+      position: relative;
+      z-index: 1;
+    }
+
+    .btn-settings:hover {
+      background: var(--divider-color);
+    }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--s);
+    }
+
+    .task-row {
+      display: flex;
+      align-items: center;
+      gap: var(--s);
+      padding: var(--s);
+      background: var(--card-bg);
+      border-radius: var(--card-border-radius);
+      box-shadow: var(--whiteframe-shadow-2dp);
+      border-bottom: 1px solid var(--divider-color);
+    }
+
+    .task-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .color-swatch {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      padding: 0;
+      background: none;
+    }
+
+    .color-swatch::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+
+    .color-swatch::-webkit-color-swatch {
+      border: 2px solid var(--divider-color);
+      border-radius: 50%;
+    }
+
+    .btn-clear {
+      background: transparent;
+      border: 1px solid var(--divider-color);
+      color: var(--text-color);
+      padding: var(--s-half) var(--s);
+      border-radius: var(--card-border-radius);
+      cursor: pointer;
+      font-family: var(--font-primary-stack);
+      font-size: 0.85em;
+    }
+
+    .btn-clear:hover {
+      background: var(--divider-color);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: var(--s3);
+      color: var(--text-color-muted, #888);
+    }
+
+    .tag-color-row {
+      display: flex;
+      align-items: center;
+      gap: var(--s);
+      padding: var(--s-half) 0;
+      border-bottom: 1px solid var(--divider-color);
+    }
+
+    .tag-color-row:last-child {
+      border-bottom: none;
+    }
+
+    .tag-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tag-color-input {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      padding: 0;
+      background: none;
+    }
+
+    .tag-color-input::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+
+    .tag-color-input::-webkit-color-swatch {
+      border: 2px solid var(--divider-color);
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <h2>Task Colors</h2>
+  <div class="toolbar">
+    <input type="text" id="searchInput" class="search-input" placeholder="Search tasks..." />
+    <select id="filterSelect" class="toolbar-select">
+      <option value="all">All</option>
+      <option value="colored">Colored</option>
+      <option value="uncolored">Uncolored</option>
+    </select>
+    <select id="sortSelect" class="toolbar-select">
+      <option value="recent">Recent</option>
+      <option value="color">By Color</option>
+    </select>
+    <button id="btnSettings" class="btn-settings" onclick="console.log('[TaskColor] btnSettings onclick fired'); if(typeof PluginAPI !== 'undefined' && PluginAPI.showSnack) { PluginAPI.showSnack({ msg: 'Tag Colors button clicked', type: 'INFO' }); }">Tag Colors</button>
+  </div>
+  <div id="taskList" class="task-list"></div>
+
+  <script>
+    console.log('[TaskColor] iframe script starting');
+    const MARKER = '__task_colors__=';
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function getCurrentColor(notes, taskId) {
+      if (!notes) return '';
+      const markerIdx = notes.indexOf(MARKER);
+      if (markerIdx === -1) return '';
+      const jsonStart = markerIdx + MARKER.length;
+      const jsonEnd = notes.indexOf('\n', jsonStart);
+      const jsonStr = jsonEnd === -1 ? notes.substring(jsonStart) : notes.substring(jsonStart, jsonEnd);
+      try {
+        const data = JSON.parse(jsonStr);
+        return data[taskId] || '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function setColorInNotes(notes, taskId, color) {
+      let data = {};
+      let beforeMarker = '';
+      let afterMarker = '';
+
+      if (notes) {
+        const markerIdx = notes.indexOf(MARKER);
+        if (markerIdx !== -1) {
+          const jsonStart = markerIdx + MARKER.length;
+          const jsonEnd = notes.indexOf('\n', jsonStart);
+          const jsonStr = jsonEnd === -1 ? notes.substring(jsonStart) : notes.substring(jsonStart, jsonEnd);
+          try {
+            data = JSON.parse(jsonStr);
+          } catch (e) {
+            // ignore
+          }
+          beforeMarker = notes.substring(0, markerIdx);
+          afterMarker = jsonEnd === -1 ? '' : notes.substring(jsonEnd + 1);
+        } else {
+          beforeMarker = notes;
+        }
+      }
+
+      if (color) {
+        data[taskId] = color;
+      } else {
+        delete data[taskId];
+      }
+
+      const keys = Object.keys(data);
+      if (keys.length === 0) {
+        const combined = beforeMarker + afterMarker;
+        return combined.length ? combined : '';
+      }
+
+      const markerLine = MARKER + JSON.stringify(data);
+      const combined = beforeMarker + afterMarker;
+      return combined ? combined + '\n' + markerLine : markerLine;
+    }
+
+    let tagColors = {};
+
+    async function loadTagColors() {
+      try {
+        const saved = await PluginAPI.loadSyncedData('tagColors');
+        if (saved) {
+          tagColors = JSON.parse(saved);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    function getEffectiveColor(notes, taskId, tagIds) {
+      const noteColor = getCurrentColor(notes, taskId);
+      if (noteColor) return noteColor;
+      if (tagIds && tagIds.length > 0) {
+        for (const tagId of tagIds) {
+          if (tagColors[tagId]) return tagColors[tagId];
+        }
+      }
+      return '';
+    }
+
+    async function loadTasks() {
+      const taskList = document.getElementById('taskList');
+      const searchInput = document.getElementById('searchInput');
+      const filterSelect = document.getElementById('filterSelect');
+      const sortSelect = document.getElementById('sortSelect');
+      const query = (searchInput ? (searchInput.value || '').toLowerCase().trim() : '');
+      const filter = filterSelect ? filterSelect.value : 'all';
+      const sort = sortSelect ? sortSelect.value : 'recent';
+
+      PluginAPI.log.info('[TaskColor] loadTasks called, query:', query, 'filter:', filter, 'sort:', sort);
+
+      await loadTagColors();
+
+      try {
+        const tasks = await PluginAPI.getTasks();
+        PluginAPI.log.info('[TaskColor] getTasks returned', tasks.length, 'tasks');
+        let activeTasks = tasks.filter(t => !t.isDone);
+        PluginAPI.log.info('[TaskColor] active tasks:', activeTasks.length);
+
+        if (query) {
+          activeTasks = activeTasks.filter(t => t.title.toLowerCase().includes(query));
+          PluginAPI.log.info('[TaskColor] after search filter:', activeTasks.length);
+        }
+
+        activeTasks = activeTasks.map(task => {
+          const color = getEffectiveColor(task.notes, task.id, task.tagIds);
+          return { task, color };
+        });
+
+        if (filter === 'colored') {
+          activeTasks = activeTasks.filter(item => !!item.color);
+        } else if (filter === 'uncolored') {
+          activeTasks = activeTasks.filter(item => !item.color);
+        }
+
+        if (sort === 'color') {
+          activeTasks.sort((a, b) => {
+            if (!a.color && !b.color) return 0;
+            if (!a.color) return 1;
+            if (!b.color) return -1;
+            return a.color.localeCompare(b.color);
+          });
+        } else {
+          activeTasks.sort((a, b) => {
+            const timeA = a.task.updated || a.task.created || 0;
+            const timeB = b.task.updated || b.task.created || 0;
+            return timeB - timeA;
+          });
+        }
+
+        if (activeTasks.length === 0) {
+          taskList.innerHTML = '<div class="empty-state">No matching tasks</div>';
+          return;
+        }
+
+        taskList.innerHTML = activeTasks.map(item => {
+          const task = item.task;
+          const color = item.color;
+          const safeTitle = escapeHtml(task.title);
+          return '<div class="task-row" data-task-id="' + task.id + '">' +
+            '<span class="task-title" title="' + safeTitle + '">' + safeTitle + '</span>' +
+            '<input type="color" class="color-swatch" value="' + (color || '#000000') + '" data-task-id="' + task.id + '">' +
+            (color ? '<button class="btn-clear" data-task-id="' + task.id + '">Clear</button>' : '') +
+          '</div>';
+        }).join('');
+
+        taskList.querySelectorAll('.color-swatch').forEach(input => {
+          input.addEventListener('input', async (e) => {
+            const taskId = e.target.dataset.taskId;
+            const color = e.target.value;
+            const item = activeTasks.find(i => i.task.id === taskId);
+            if (item) {
+              const newNotes = setColorInNotes(item.task.notes, taskId, color);
+              await PluginAPI.updateTask(taskId, { notes: newNotes });
+              PluginAPI.showSnack({ msg: 'Color updated', type: 'SUCCESS' });
+              loadTasks();
+            }
+          });
+        });
+
+        taskList.querySelectorAll('.btn-clear').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const taskId = e.target.dataset.taskId;
+            const item = activeTasks.find(i => i.task.id === taskId);
+            if (item) {
+              const newNotes = setColorInNotes(item.task.notes, taskId, '');
+              await PluginAPI.updateTask(taskId, { notes: newNotes });
+              PluginAPI.showSnack({ msg: 'Color cleared', type: 'INFO' });
+              loadTasks();
+            }
+          });
+        });
+
+      } catch (error) {
+        console.error('[TaskColor] Error loading tasks:', error);
+        PluginAPI.log.error('[TaskColor] Error loading tasks:', error);
+        taskList.innerHTML = '<div class="empty-state">Failed to load tasks</div>';
+      }
+    }
+
+    // Debounced search to avoid excessive API calls
+    let searchTimeout = null;
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        PluginAPI.log.info('[TaskColor] Search input changed:', searchInput.value);
+        if (searchTimeout) clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          PluginAPI.log.info('[TaskColor] Running search for:', searchInput.value);
+          loadTasks();
+        }, 200);
+      });
+    } else {
+      PluginAPI.log.warn('[TaskColor] Search input not found');
+    }
+
+    const filterSelect = document.getElementById('filterSelect');
+    if (filterSelect) {
+      filterSelect.addEventListener('change', () => {
+        PluginAPI.log.info('[TaskColor] Filter changed:', filterSelect.value);
+        loadTasks();
+      });
+    } else {
+      PluginAPI.log.warn('[TaskColor] Filter select not found');
+    }
+
+    const sortSelect = document.getElementById('sortSelect');
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => {
+        PluginAPI.log.info('[TaskColor] Sort changed:', sortSelect.value);
+        loadTasks();
+      });
+    } else {
+      PluginAPI.log.warn('[TaskColor] Sort select not found');
+    }
+
+    PluginAPI.registerHook(PluginAPI.Hooks.ANY_TASK_UPDATE, () => {
+      loadTasks();
+    });
+
+    PluginAPI.registerHook(PluginAPI.Hooks.PERSISTED_DATA_CHANGED, async () => {
+      PluginAPI.log.info('[TaskColor] PERSISTED_DATA_CHANGED in iframe');
+      await loadTasks();
+    });
+
+    document.getElementById('btnSettings').addEventListener('click', async () => {
+      PluginAPI.log.info('[TaskColor] Tag Colors button clicked');
+      try {
+        PluginAPI.showSnack({ msg: 'Opening tag colors...', type: 'INFO' });
+        
+        // First try: request tag colors dialog from host via postMessage
+        let result = await new Promise((resolve) => {
+          const handler = (event) => {
+            PluginAPI.log.info('[TaskColor] iframe received message:', event.data);
+            if (event.data && event.data.type === 'tag-colors-result') {
+              window.removeEventListener('message', handler);
+              resolve(event.data.colors || null);
+            }
+          };
+          window.addEventListener('message', handler);
+          
+          try {
+            PluginAPI.log.info('[TaskColor] iframe sending open-tag-colors to parent');
+            window.parent.postMessage({ type: 'open-tag-colors' }, '*');
+          } catch (e) {
+            window.removeEventListener('message', handler);
+            resolve(null);
+          }
+          
+          // Timeout after 30 seconds
+          setTimeout(() => {
+            PluginAPI.log.warn('[TaskColor] iframe tag-colors timeout');
+            window.removeEventListener('message', handler);
+            resolve(null);
+          }, 30000);
+        });
+        
+        PluginAPI.log.info('[TaskColor] iframe host result:', result);
+        
+        // Fallback: if host dialog failed, try iframe-side dialog
+        if (!result) {
+          PluginAPI.log.warn('[TaskColor] Host dialog failed, trying iframe fallback');
+          try {
+            let tags = [];
+            try {
+              tags = await PluginAPI.getAllTags();
+            } catch (e) {
+              PluginAPI.log.warn('[TaskColor] getAllTags failed, trying getAppState');
+              if (typeof PluginAPI.getAppState === 'function') {
+                const state = await PluginAPI.getAppState();
+                tags = state.tags ? Object.values(state.tags) : [];
+              } else {
+                PluginAPI.log.warn('[TaskColor] getAppState not available');
+              }
+            }
+            
+            PluginAPI.log.info('[TaskColor] iframe fallback tags count:', tags.length);
+            
+            const saved = await PluginAPI.loadSyncedData('tagColors');
+            const tagColors = saved ? JSON.parse(saved) : {};
+            
+            if (tags.length === 0) {
+              PluginAPI.showSnack({ msg: 'No tags found', type: 'WARNING' });
+              return;
+            }
+            
+            const rowsHtml = tags.map(tag => {
+              const color = tagColors[tag.id] || '#000000';
+              return '<div class="tag-color-row">' +
+                '<span class="tag-name" title="' + escapeHtml(tag.title) + '">' + escapeHtml(tag.title) + '</span>' +
+                '<input type="color" class="tag-color-input" data-tag-id="' + tag.id + '" value="' + color + '">' +
+                '</div>';
+            }).join('');
+            
+            result = await PluginAPI.openDialog({
+              title: 'Tag Colors (' + tags.length + ' tags)',
+              htmlContent: '<div style="padding:8px 0;">' + rowsHtml + '</div>',
+              buttons: [
+                { label: 'Cancel' },
+                {
+                  label: 'Save',
+                  color: 'primary',
+                  raised: true,
+                  onClick: () => {
+                    PluginAPI.log.info('[TaskColor] iframe fallback Save clicked');
+                    try {
+                      const inputs = document.querySelectorAll('.tag-color-input');
+                      const newTagColors = {};
+                      inputs.forEach(input => {
+                        newTagColors[input.dataset.tagId] = input.value;
+                      });
+                      PluginAPI.persistDataSynced(JSON.stringify(newTagColors), 'tagColors');
+                      PluginAPI.showSnack({ msg: 'Tag colors saved (iframe fallback)', type: 'SUCCESS' });
+                      PluginAPI.log.info('[TaskColor] iframe fallback saved colors:', newTagColors);
+                      result = newTagColors;
+                    } catch (e) {
+                      PluginAPI.log.error('[TaskColor] iframe fallback save error:', e);
+                      PluginAPI.showSnack({ msg: 'Error saving: ' + e.message, type: 'ERROR' });
+                    }
+                  }
+                }
+              ]
+            });
+          } catch (fallbackError) {
+            console.error('[TaskColor] Fallback dialog also failed:', fallbackError);
+            PluginAPI.showSnack({ msg: 'Failed to open tag colors dialog', type: 'ERROR' });
+            return;
+          }
+        }
+        
+        if (result) {
+          PluginAPI.log.info('[TaskColor] iframe final result:', result);
+          await PluginAPI.persistDataSynced(JSON.stringify(result), 'tagColors');
+          PluginAPI.showSnack({ msg: 'Tag colors saved', type: 'SUCCESS' });
+          await loadTagColors();
+          await loadTasks();
+        } else {
+          PluginAPI.log.warn('[TaskColor] iframe final result is null/empty');
+        }
+      } catch (error) {
+        console.error('[TaskColor] Error with tag colors:', error);
+        PluginAPI.showSnack({ msg: 'Failed to open tag colors: ' + error.message, type: 'ERROR' });
+      }
+    });
+
+    window.addEventListener('message', async (event) => {
+      if (event.data && event.data.type === 'refresh') {
+        await loadTasks();
+      }
+    });
+
+    if (PluginAPI.onReady) {
+      PluginAPI.onReady(loadTasks);
+    } else {
+      loadTasks();
+    }
+  </script>
+</body>
+</html>
