@@ -67,4 +67,4 @@ This project is licensed under the Cooperative Nonviolence License (CNVL) - see 
 
 If you find this plugin useful, please consider supporting its development:
 
-[![Donate via Open Collective](https://opencollective.com/FLT/donate/button@2x.png?color=blue)](https://opencollective.com/FLT)
+[![Donate via Open Collective](https://opencollective.com/flourishlifetech/donate/button@2x.png?color=blue)](https://opencollective.com/flourishlifetech)
