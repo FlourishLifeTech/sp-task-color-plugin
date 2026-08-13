@@ -130,6 +130,23 @@
       color: var(--text-color-muted, #888);
     }
 
+    .donation-footer {
+      text-align: center;
+      padding: var(--s2) var(--s);
+      margin-top: var(--s2);
+      border-top: 1px solid var(--divider-color);
+    }
+
+    .donation-footer a {
+      color: var(--c-primary);
+      text-decoration: none;
+      font-size: 0.9em;
+    }
+
+    .donation-footer a:hover {
+      text-decoration: underline;
+    }
+
     .tag-color-row {
       display: flex;
       align-items: center;
@@ -138,8 +155,20 @@
       border-bottom: 1px solid var(--divider-color);
     }
 
-    .tag-color-row:last-child {
-      border-bottom: none;
+    .tag-color-checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: var(--s-half);
+      flex: 1;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .tag-color-checkbox-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
     }
 
     .tag-name {
@@ -182,9 +211,14 @@
       <option value="recent">Recent</option>
       <option value="color">By Color</option>
     </select>
-    <button id="btnSettings" class="btn-settings" onclick="console.log('[TaskColor] btnSettings onclick fired'); if(typeof PluginAPI !== 'undefined' && PluginAPI.showSnack) { PluginAPI.showSnack({ msg: 'Tag Colors button clicked', type: 'INFO' }); }">Tag Colors</button>
+    <button id="btnSettings" class="btn-settings">Tag Colors</button>
   </div>
   <div id="taskList" class="task-list"></div>
+  <div class="donation-footer">
+    <a href="https://opencollective.com/FLT" target="_blank" rel="noopener noreferrer">
+      If you like this plugin, consider supporting its development 🦋
+    </a>
+  </div>
 
   <script>
     console.log('[TaskColor] iframe script starting');
@@ -277,6 +311,22 @@
       return '';
     }
 
+    const log = (...args) => {
+      if (typeof PluginAPI !== 'undefined' && PluginAPI.log && typeof PluginAPI.log.info === 'function') {
+        PluginAPI.log.info(...args);
+      } else {
+        console.log('[TaskColor]', ...args);
+      }
+    };
+
+    const logWarn = (...args) => {
+      if (typeof PluginAPI !== 'undefined' && PluginAPI.log && typeof PluginAPI.log.warn === 'function') {
+        PluginAPI.log.warn(...args);
+      } else {
+        console.warn('[TaskColor]', ...args);
+      }
+    };
+
     async function loadTasks() {
       const taskList = document.getElementById('taskList');
       const searchInput = document.getElementById('searchInput');
@@ -286,19 +336,19 @@
       const filter = filterSelect ? filterSelect.value : 'all';
       const sort = sortSelect ? sortSelect.value : 'recent';
 
-      PluginAPI.log.info('[TaskColor] loadTasks called, query:', query, 'filter:', filter, 'sort:', sort);
+      log('loadTasks called, query:', query, 'filter:', filter, 'sort:', sort);
 
       await loadTagColors();
 
       try {
         const tasks = await PluginAPI.getTasks();
-        PluginAPI.log.info('[TaskColor] getTasks returned', tasks.length, 'tasks');
+        log('getTasks returned', tasks.length, 'tasks');
         let activeTasks = tasks.filter(t => !t.isDone);
-        PluginAPI.log.info('[TaskColor] active tasks:', activeTasks.length);
+        log('active tasks:', activeTasks.length);
 
         if (query) {
           activeTasks = activeTasks.filter(t => t.title.toLowerCase().includes(query));
-          PluginAPI.log.info('[TaskColor] after search filter:', activeTasks.length);
+          log('after search filter:', activeTasks.length);
         }
 
         activeTasks = activeTasks.map(task => {
@@ -372,187 +422,265 @@
 
       } catch (error) {
         console.error('[TaskColor] Error loading tasks:', error);
-        PluginAPI.log.error('[TaskColor] Error loading tasks:', error);
         taskList.innerHTML = '<div class="empty-state">Failed to load tasks</div>';
       }
     }
 
-    // Debounced search to avoid excessive API calls
-    let searchTimeout = null;
-    const searchInput = document.getElementById('searchInput');
-    if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        PluginAPI.log.info('[TaskColor] Search input changed:', searchInput.value);
-        if (searchTimeout) clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-          PluginAPI.log.info('[TaskColor] Running search for:', searchInput.value);
+    function initSidePanel() {
+      let searchTimeout = null;
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', () => {
+          log('Search input changed:', searchInput.value);
+          if (searchTimeout) clearTimeout(searchTimeout);
+          searchTimeout = setTimeout(() => {
+            log('Running search for:', searchInput.value);
+            loadTasks();
+          }, 200);
+        });
+      } else {
+        logWarn('Search input not found');
+      }
+
+      const filterSelect = document.getElementById('filterSelect');
+      if (filterSelect) {
+        filterSelect.addEventListener('change', () => {
+          log('Filter changed:', filterSelect.value);
           loadTasks();
-        }, 200);
-      });
-    } else {
-      PluginAPI.log.warn('[TaskColor] Search input not found');
-    }
+        });
+      } else {
+        logWarn('Filter select not found');
+      }
 
-    const filterSelect = document.getElementById('filterSelect');
-    if (filterSelect) {
-      filterSelect.addEventListener('change', () => {
-        PluginAPI.log.info('[TaskColor] Filter changed:', filterSelect.value);
+      const sortSelect = document.getElementById('sortSelect');
+      if (sortSelect) {
+        sortSelect.addEventListener('change', () => {
+          log('Sort changed:', sortSelect.value);
+          loadTasks();
+        });
+      } else {
+        logWarn('Sort select not found');
+      }
+
+      PluginAPI.registerHook(PluginAPI.Hooks.ANY_TASK_UPDATE, () => {
         loadTasks();
       });
-    } else {
-      PluginAPI.log.warn('[TaskColor] Filter select not found');
-    }
 
-    const sortSelect = document.getElementById('sortSelect');
-    if (sortSelect) {
-      sortSelect.addEventListener('change', () => {
-        PluginAPI.log.info('[TaskColor] Sort changed:', sortSelect.value);
-        loadTasks();
+      PluginAPI.registerHook(PluginAPI.Hooks.PERSISTED_DATA_CHANGED, async () => {
+        log('PERSISTED_DATA_CHANGED in iframe');
+        await loadTasks();
       });
-    } else {
-      PluginAPI.log.warn('[TaskColor] Sort select not found');
-    }
 
-    PluginAPI.registerHook(PluginAPI.Hooks.ANY_TASK_UPDATE, () => {
-      loadTasks();
-    });
-
-    PluginAPI.registerHook(PluginAPI.Hooks.PERSISTED_DATA_CHANGED, async () => {
-      PluginAPI.log.info('[TaskColor] PERSISTED_DATA_CHANGED in iframe');
-      await loadTasks();
-    });
-
-    document.getElementById('btnSettings').addEventListener('click', async () => {
-      PluginAPI.log.info('[TaskColor] Tag Colors button clicked');
-      try {
-        PluginAPI.showSnack({ msg: 'Opening tag colors...', type: 'INFO' });
-        
-        // First try: request tag colors dialog from host via postMessage
-        let result = await new Promise((resolve) => {
-          const handler = (event) => {
-            PluginAPI.log.info('[TaskColor] iframe received message:', event.data);
-            if (event.data && event.data.type === 'tag-colors-result') {
-              window.removeEventListener('message', handler);
-              resolve(event.data.colors || null);
-            }
-          };
-          window.addEventListener('message', handler);
+      document.getElementById('btnSettings').addEventListener('click', async () => {
+        log('Tag Colors button clicked');
+        try {
+          PluginAPI.showSnack({ msg: 'Opening tag colors...', type: 'INFO' });
           
+          // First try: direct host function call (bypasses postMessage)
+          let result = null;
           try {
-            PluginAPI.log.info('[TaskColor] iframe sending open-tag-colors to parent');
-            window.parent.postMessage({ type: 'open-tag-colors' }, '*');
-          } catch (e) {
-            window.removeEventListener('message', handler);
-            resolve(null);
+            if (window.parent && window.parent.taskColorPluginHost && typeof window.parent.taskColorPluginHost.openTagColors === 'function') {
+              log('Trying direct host function call');
+              result = await window.parent.taskColorPluginHost.openTagColors();
+              log('Direct host call result:', result);
+            } else {
+              logWarn('Direct host function not available');
+            }
+          } catch (directError) {
+            logWarn('Direct host call failed:', directError);
+            result = null;
           }
           
-          // Timeout after 30 seconds
-          setTimeout(() => {
-            PluginAPI.log.warn('[TaskColor] iframe tag-colors timeout');
-            window.removeEventListener('message', handler);
-            resolve(null);
-          }, 30000);
-        });
-        
-        PluginAPI.log.info('[TaskColor] iframe host result:', result);
-        
-        // Fallback: if host dialog failed, try iframe-side dialog
-        if (!result) {
-          PluginAPI.log.warn('[TaskColor] Host dialog failed, trying iframe fallback');
-          try {
-            let tags = [];
-            try {
-              tags = await PluginAPI.getAllTags();
-            } catch (e) {
-              PluginAPI.log.warn('[TaskColor] getAllTags failed, trying getAppState');
-              if (typeof PluginAPI.getAppState === 'function') {
-                const state = await PluginAPI.getAppState();
-                tags = state.tags ? Object.values(state.tags) : [];
-              } else {
-                PluginAPI.log.warn('[TaskColor] getAppState not available');
+          // Second try: postMessage to host
+          if (!result) {
+            logWarn('Trying postMessage to host');
+            result = await new Promise((resolve) => {
+              const handler = (event) => {
+                log('iframe received message:', event.data);
+                if (event.data && event.data.type === 'tag-colors-result') {
+                  window.removeEventListener('message', handler);
+                  resolve(event.data.colors || null);
+                }
+              };
+              window.addEventListener('message', handler);
+              
+              try {
+                log('iframe sending open-tag-colors to parent');
+                window.parent.postMessage({ type: 'open-tag-colors' }, '*');
+              } catch (e) {
+                window.removeEventListener('message', handler);
+                resolve(null);
               }
-            }
+              
+              // Timeout after 30 seconds
+              setTimeout(() => {
+                logWarn('iframe tag-colors timeout');
+                window.removeEventListener('message', handler);
+                resolve(null);
+              }, 30000);
+            });
             
-            PluginAPI.log.info('[TaskColor] iframe fallback tags count:', tags.length);
-            
-            const saved = await PluginAPI.loadSyncedData('tagColors');
-            const tagColors = saved ? JSON.parse(saved) : {};
-            
-            if (tags.length === 0) {
-              PluginAPI.showSnack({ msg: 'No tags found', type: 'WARNING' });
-              return;
-            }
-            
+            log('iframe host result:', result);
+          }
+          
+          // Fallback: if host dialog failed, try iframe-side dialog
+          if (!result) {
+            logWarn('Host dialog failed, trying iframe fallback');
+            try {
+              let tags = [];
+              try {
+                tags = await PluginAPI.getAllTags();
+              } catch (e) {
+                logWarn('getAllTags failed, trying getAppState');
+                if (typeof PluginAPI.getAppState === 'function') {
+                  const state = await PluginAPI.getAppState();
+                  tags = state.tags ? Object.values(state.tags) : [];
+                } else {
+                  logWarn('getAppState not available');
+                }
+              }
+              
+              log('iframe fallback tags count:', tags.length);
+              
+              const saved = await PluginAPI.loadSyncedData('tagColors');
+              const tagColors = saved ? JSON.parse(saved) : {};
+              
+              if (tags.length === 0) {
+                PluginAPI.showSnack({ msg: 'No tags found', type: 'WARNING' });
+                return;
+              }
+              
             const rowsHtml = tags.map(tag => {
-              const color = tagColors[tag.id] || '#000000';
-              return '<div class="tag-color-row">' +
-                '<span class="tag-name" title="' + escapeHtml(tag.title) + '">' + escapeHtml(tag.title) + '</span>' +
-                '<input type="color" class="tag-color-input" data-tag-id="' + tag.id + '" value="' + color + '">' +
+              const defaultColor = tag.color || '#000000';
+              const pluginColor = tagColors[tag.id] || defaultColor;
+              const isActive = tagColors[tag.id] !== undefined;
+              return '<div class="tag-color-row" data-tag-id="' + tag.id + '" data-tag-title="' + escapeHtml(tag.title).toLowerCase() + '">' +
+                '<label class="tag-color-checkbox-label">' +
+                  '<input type="checkbox" class="tag-color-active" data-tag-id="' + tag.id + '" ' + (isActive ? 'checked' : '') + '>' +
+                  '<span class="tag-name" title="' + escapeHtml(tag.title) + '">' + escapeHtml(tag.title) + '</span>' +
+                '</label>' +
+                '<input type="color" class="tag-color-input" data-tag-id="' + tag.id + '" value="' + pluginColor + '" ' + (isActive ? '' : 'disabled') + '>' +
                 '</div>';
             }).join('');
             
+            const searchHtml = '<input type="text" id="tagSearchInput" placeholder="Search tags..." style="width:100%;padding:8px;margin-bottom:8px;border:1px solid var(--divider-color);border-radius:var(--card-border-radius);background:var(--card-bg);color:var(--text-color);">';
+            
             result = await PluginAPI.openDialog({
               title: 'Tag Colors (' + tags.length + ' tags)',
-              htmlContent: '<div style="padding:8px 0;">' + rowsHtml + '</div>',
+              htmlContent: '<div style="padding:8px 0;max-height:60vh;overflow-y:auto;">' + searchHtml + rowsHtml + '</div>',
               buttons: [
                 { label: 'Cancel' },
                 {
                   label: 'Save',
                   color: 'primary',
                   raised: true,
-                  onClick: () => {
-                    PluginAPI.log.info('[TaskColor] iframe fallback Save clicked');
-                    try {
-                      const inputs = document.querySelectorAll('.tag-color-input');
-                      const newTagColors = {};
-                      inputs.forEach(input => {
-                        newTagColors[input.dataset.tagId] = input.value;
-                      });
-                      PluginAPI.persistDataSynced(JSON.stringify(newTagColors), 'tagColors');
-                      PluginAPI.showSnack({ msg: 'Tag colors saved (iframe fallback)', type: 'SUCCESS' });
-                      PluginAPI.log.info('[TaskColor] iframe fallback saved colors:', newTagColors);
-                      result = newTagColors;
-                    } catch (e) {
-                      PluginAPI.log.error('[TaskColor] iframe fallback save error:', e);
-                      PluginAPI.showSnack({ msg: 'Error saving: ' + e.message, type: 'ERROR' });
+                  onClick: async () => {
+                    const inputs = document.querySelectorAll('.tag-color-input');
+                    const checkboxes = document.querySelectorAll('.tag-color-active');
+                    const newTagColors = {};
+                    
+                    inputs.forEach((input, index) => {
+                      const tagId = input.dataset.tagId;
+                      const isActive = checkboxes[index] && checkboxes[index].checked;
+                      if (isActive) {
+                        newTagColors[tagId] = input.value;
+                      }
+                    });
+                    
+                    await PluginAPI.persistDataSynced(JSON.stringify(newTagColors), 'tagColors');
+                    
+                    // Update tag colors in tag settings
+                    for (const [tagId, color] of Object.entries(newTagColors)) {
+                      await PluginAPI.updateTag(tagId, { color });
                     }
+                    
+                    PluginAPI.showSnack({ msg: 'Tag colors saved (iframe fallback)', type: 'SUCCESS' });
+                    log('iframe fallback saved colors:', newTagColors);
+                    result = newTagColors;
                   }
                 }
               ]
             });
-          } catch (fallbackError) {
-            console.error('[TaskColor] Fallback dialog also failed:', fallbackError);
-            PluginAPI.showSnack({ msg: 'Failed to open tag colors dialog', type: 'ERROR' });
-            return;
+            
+            // Add search/filter functionality
+            const searchInput = document.getElementById('tagSearchInput');
+            if (searchInput) {
+              searchInput.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                const rows = document.querySelectorAll('.tag-color-row');
+                rows.forEach(row => {
+                  const title = row.getAttribute('data-tag-title') || '';
+                  const tagName = row.querySelector('.tag-name')?.textContent?.toLowerCase() || '';
+                  if (!query || title.includes(query) || tagName.includes(query)) {
+                    row.style.display = '';
+                  } else {
+                    row.style.display = 'none';
+                  }
+                });
+              });
+            }
+            } catch (fallbackError) {
+              console.error('[TaskColor] Fallback dialog also failed:', fallbackError);
+              PluginAPI.showSnack({ msg: 'Failed to open tag colors dialog', type: 'ERROR' });
+              return;
+            }
           }
+          
+          if (result) {
+            log('iframe final result:', result);
+            await PluginAPI.persistDataSynced(JSON.stringify(result), 'tagColors');
+            PluginAPI.showSnack({ msg: 'Tag colors saved', type: 'SUCCESS' });
+            await loadTagColors();
+            await loadTasks();
+          } else {
+            logWarn('iframe final result is null/empty');
+          }
+        } catch (error) {
+          console.error('[TaskColor] Error with tag colors:', error);
+          PluginAPI.showSnack({ msg: 'Failed to open tag colors: ' + error.message, type: 'ERROR' });
         }
-        
-        if (result) {
-          PluginAPI.log.info('[TaskColor] iframe final result:', result);
-          await PluginAPI.persistDataSynced(JSON.stringify(result), 'tagColors');
-          PluginAPI.showSnack({ msg: 'Tag colors saved', type: 'SUCCESS' });
-          await loadTagColors();
+      });
+
+      window.addEventListener('message', async (event) => {
+        if (event.data && event.data.type === 'refresh') {
           await loadTasks();
-        } else {
-          PluginAPI.log.warn('[TaskColor] iframe final result is null/empty');
         }
-      } catch (error) {
-        console.error('[TaskColor] Error with tag colors:', error);
-        PluginAPI.showSnack({ msg: 'Failed to open tag colors: ' + error.message, type: 'ERROR' });
-      }
-    });
+      });
 
-    window.addEventListener('message', async (event) => {
-      if (event.data && event.data.type === 'refresh') {
-        await loadTasks();
-      }
-    });
-
-    if (PluginAPI.onReady) {
-      PluginAPI.onReady(loadTasks);
-    } else {
       loadTasks();
     }
+
+    async function init() {
+      if (typeof PluginAPI !== 'undefined') {
+        if (PluginAPI.onReady) {
+          PluginAPI.onReady(initSidePanel);
+        } else {
+          initSidePanel();
+        }
+        return;
+      }
+
+      console.warn('[TaskColor] PluginAPI not ready yet, waiting for bridge...');
+      const startTime = Date.now();
+      const timeout = 10000; // 10 seconds
+
+      while (Date.now() - startTime < timeout) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (typeof PluginAPI !== 'undefined') {
+          console.log('[TaskColor] PluginAPI bridge now available');
+          if (PluginAPI.onReady) {
+            PluginAPI.onReady(initSidePanel);
+          } else {
+            initSidePanel();
+          }
+          return;
+        }
+      }
+
+      console.error('[TaskColor] PluginAPI never became available in iframe');
+    }
+
+    init();
   </script>
 </body>
 </html>

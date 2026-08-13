@@ -1,7 +1,7 @@
 {
   "id": "task-color-plugin",
   "name": "Task Color",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "description": "Select a color for each task.",
   "manifestVersion": 1,
   "minSupVersion": "14.0.0",
