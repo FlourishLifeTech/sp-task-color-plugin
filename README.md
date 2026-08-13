@@ -2,6 +2,9 @@
 
 Set background colors on tasks, with tag-based coloring, search/filter/sort in the side panel, a palette-style color picker with favorites/last-picked, and a task picker dialog for fast color assignment.
 
+## Screenshot
+![Screenshot](screenshot.png)
+
 ## Installation
 
 1. Download `task-color-plugin.zip`
