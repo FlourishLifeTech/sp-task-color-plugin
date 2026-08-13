@@ -725,72 +725,24 @@ function register() {
   startParentObserver();
   setTimeout(refreshParentColors, 1000);
 
+  // Expose a global function for iframe-side direct calls as a fallback
+  window.taskColorPluginHost = {
+    openTagColors: async () => {
+      PluginAPI.log.info('[TaskColor] Host received direct openTagColors call');
+      return openHostTagColorsDialog(null);
+    }
+  };
+
   // Listen for tag colors requests/results from iframe
   window.addEventListener('message', async (event) => {
     PluginAPI.log.info('[TaskColor] Host received message:', event.data);
     if (event.data && event.data.type === 'open-tag-colors') {
       try {
         PluginAPI.log.info('[TaskColor] Host received open-tag-colors request');
-        const tags = await PluginAPI.getAllTags();
-        const saved = await PluginAPI.loadSyncedData('tagColors');
-        const tagColors = saved ? JSON.parse(saved) : {};
-
-        if (!tags || tags.length === 0) {
-          PluginAPI.showSnack({ msg: 'No tags found', type: 'WARNING' });
-          event.source.postMessage({ type: 'tag-colors-result', colors: {} }, event.origin);
-          return;
+        const result = await openHostTagColorsDialog(event);
+        if (result && event.source) {
+          event.source.postMessage({ type: 'tag-colors-result', colors: result }, event.origin);
         }
-
-        const rowsHtml = tags.map(tag => {
-          const color = tagColors[tag.id] || '#000000';
-          return '<div class="tag-color-row">' +
-            '<span class="tag-name" title="' + escapeHtml(tag.title) + '">' + escapeHtml(tag.title) + '</span>' +
-            '<input type="color" class="tag-color-input" data-tag-id="' + tag.id + '" value="' + color + '">' +
-            '</div>';
-        }).join('');
-
-        const result = await PluginAPI.openDialog({
-          title: 'Tag Colors (' + tags.length + ' tags)',
-          htmlContent: '<div style="padding:8px 0;">' + rowsHtml + '</div>',
-          buttons: [
-            { label: 'Cancel' },
-            {
-              label: 'Save',
-              color: 'primary',
-              raised: true,
-              onClick: async () => {
-                try {
-                  const inputs = document.querySelectorAll('.tag-color-input');
-                  const newTagColors = {};
-                  inputs.forEach(input => {
-                    newTagColors[input.dataset.tagId] = input.value;
-                  });
-                  await PluginAPI.persistDataSynced(JSON.stringify(newTagColors), 'tagColors');
-                  PluginAPI.showSnack({ msg: 'Tag colors saved', type: 'SUCCESS' });
-                  PluginAPI.log.info('[TaskColor] Host sending tag-colors-result:', newTagColors);
-                  
-                  // Update local state and refresh colors immediately
-                  tagColors = newTagColors;
-                  markColorRefreshDirty();
-                  
-                  // Send result back to iframe
-                  if (event.source) {
-                    event.source.postMessage({ type: 'tag-colors-result', colors: newTagColors }, event.origin);
-                  }
-                } catch (e) {
-                  PluginAPI.showSnack({ msg: 'Error saving: ' + e.message, type: 'ERROR' });
-                  if (event.source) {
-                    event.source.postMessage({ type: 'tag-colors-result', colors: {} }, event.origin);
-                  }
-                }
-              }
-            }
-          ]
-        });
-        
-        // Only send empty result if dialog closed without Save (e.g., Cancel or backdrop click)
-        // We can't easily distinguish Cancel from Save here, so rely on the Save button
-        // to send the result. If no result arrives within 30s, the iframe times out.
       } catch (error) {
         console.error('[TaskColor] Host error with tag colors:', error);
         PluginAPI.showSnack({ msg: 'Failed to open tag colors: ' + error.message, type: 'ERROR' });
@@ -810,6 +762,102 @@ function register() {
       }
     }
   });
+}
+
+async function openHostTagColorsDialog(event) {
+  const tags = await PluginAPI.getAllTags();
+  const saved = await PluginAPI.loadSyncedData('tagColors');
+  const currentTagColors = saved ? JSON.parse(saved) : {};
+
+  if (!tags || tags.length === 0) {
+    PluginAPI.showSnack({ msg: 'No tags found', type: 'WARNING' });
+    if (event && event.source) {
+      event.source.postMessage({ type: 'tag-colors-result', colors: {} }, event.origin);
+    }
+    return {};
+  }
+
+  const rowsHtml = tags.map(tag => {
+    const defaultColor = tag.color || '#000000';
+    const pluginColor = currentTagColors[tag.id] || defaultColor;
+    const isActive = currentTagColors[tag.id] !== undefined;
+    return '<div class="tag-color-row" data-tag-id="' + tag.id + '" data-tag-title="' + escapeHtml(tag.title).toLowerCase() + '">' +
+      '<label class="tag-color-checkbox-label">' +
+        '<input type="checkbox" class="tag-color-active" data-tag-id="' + tag.id + '" ' + (isActive ? 'checked' : '') + '>' +
+        '<span class="tag-name" title="' + escapeHtml(tag.title) + '">' + escapeHtml(tag.title) + '</span>' +
+      '</label>' +
+      '<input type="color" class="tag-color-input" data-tag-id="' + tag.id + '" value="' + pluginColor + '" ' + (isActive ? '' : 'disabled') + '>' +
+      '</div>';
+  }).join('');
+
+  const searchHtml = '<input type="text" id="tagSearchInput" placeholder="Search tags..." style="width:100%;padding:8px;margin-bottom:8px;border:1px solid var(--divider-color);border-radius:var(--card-border-radius);background:var(--card-bg);color:var(--text-color);">';
+
+  const result = await PluginAPI.openDialog({
+    title: 'Tag Colors (' + tags.length + ' tags)',
+    htmlContent: '<div style="padding:8px 0;max-height:60vh;overflow-y:auto;">' + searchHtml + rowsHtml + '</div>',
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: 'Save',
+        color: 'primary',
+        raised: true,
+        onClick: async () => {
+          try {
+            const inputs = document.querySelectorAll('.tag-color-input');
+            const checkboxes = document.querySelectorAll('.tag-color-active');
+            const newTagColors = {};
+            
+            inputs.forEach((input, index) => {
+              const tagId = input.dataset.tagId;
+              const isActive = checkboxes[index] && checkboxes[index].checked;
+              if (isActive) {
+                newTagColors[tagId] = input.value;
+              }
+            });
+            
+            await PluginAPI.persistDataSynced(JSON.stringify(newTagColors), 'tagColors');
+            
+            // Update tag colors in tag settings
+            for (const [tagId, color] of Object.entries(newTagColors)) {
+              await PluginAPI.updateTag(tagId, { color });
+            }
+            
+            PluginAPI.showSnack({ msg: 'Tag colors saved', type: 'SUCCESS' });
+            
+            // Update local state and refresh colors immediately
+            tagColors = newTagColors;
+            markColorRefreshDirty();
+            
+            PluginAPI.log.info('[TaskColor] Host saved tag colors:', newTagColors);
+            return newTagColors;
+          } catch (e) {
+            PluginAPI.showSnack({ msg: 'Error saving: ' + e.message, type: 'ERROR' });
+            return {};
+          }
+        }
+      }
+    ]
+  });
+  
+  // Add search/filter functionality
+  const searchInput = document.getElementById('tagSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      const rows = document.querySelectorAll('.tag-color-row');
+      rows.forEach(row => {
+        const title = row.getAttribute('data-tag-title') || '';
+        const tagName = row.querySelector('.tag-name')?.textContent?.toLowerCase() || '';
+        if (!query || title.includes(query) || tagName.includes(query)) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    });
+  }
+  
+  return result || {};
 }
 
 async function init() {

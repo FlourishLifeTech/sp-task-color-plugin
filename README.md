@@ -58,3 +58,13 @@ The app does not expose task IDs on `<planner-task>` elements in the board or pl
 - `plugin.js` — host-side logic, DOM coloring, dialogs, persistence
 - `index.html` — iframe-side side panel UI
 - `task-color-plugin.zip` — packaged plugin archive
+
+## License
+
+This project is licensed under the Cooperative Nonviolence License (CNVL) - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+If you find this plugin useful, please consider supporting its development:
+
+[![Donate via Open Collective](https://opencollective.com/FLT/donate/button@2x.png?color=blue)](https://opencollective.com/FLT)
