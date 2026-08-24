@@ -212,6 +212,7 @@
       <option value="color">By Color</option>
     </select>
     <button id="btnSettings" class="btn-settings">Tag Colors</button>
+    <button id="btnSettingsPanel" class="btn-settings">Settings</button>
   </div>
   <div id="taskList" class="task-list"></div>
   <div class="donation-footer">
@@ -223,6 +224,9 @@
   <script>
     console.log('[TaskColor] iframe script starting');
     const MARKER = '__task_colors__=';
+    const TASK_COLORS_KEY = 'taskColors';
+
+    let taskColorsSynced = {};
 
     function escapeHtml(str) {
       return str
@@ -232,7 +236,25 @@
         .replace(/"/g, '&quot;');
     }
 
+    async function loadTaskColors() {
+      try {
+        const saved = await PluginAPI.loadSyncedData(TASK_COLORS_KEY);
+        if (saved) {
+          taskColorsSynced = JSON.parse(saved);
+        } else {
+          taskColorsSynced = {};
+        }
+      } catch (e) {
+        taskColorsSynced = {};
+      }
+    }
+
     function getCurrentColor(notes, taskId) {
+      // Primary source: synced plugin storage
+      if (taskColorsSynced && taskColorsSynced[taskId]) {
+        return taskColorsSynced[taskId];
+      }
+      // Backport/fallback: legacy notes marker
       if (!notes) return '';
       const markerIdx = notes.indexOf(MARKER);
       if (markerIdx === -1) return '';
@@ -241,7 +263,11 @@
       const jsonStr = jsonEnd === -1 ? notes.substring(jsonStart) : notes.substring(jsonStart, jsonEnd);
       try {
         const data = JSON.parse(jsonStr);
-        return data[taskId] || '';
+        const legacy = data[taskId] || '';
+        if (legacy) {
+          taskColorsSynced[taskId] = legacy;
+        }
+        return legacy;
       } catch (e) {
         return '';
       }
@@ -399,8 +425,10 @@
             const color = e.target.value;
             const item = activeTasks.find(i => i.task.id === taskId);
             if (item) {
-              const newNotes = setColorInNotes(item.task.notes, taskId, color);
+              taskColorsSynced[taskId] = color;
+              const newNotes = setColorInNotes(item.task.notes, taskId, '');
               await PluginAPI.updateTask(taskId, { notes: newNotes });
+              await PluginAPI.persistDataSynced(JSON.stringify(taskColorsSynced), TASK_COLORS_KEY);
               PluginAPI.showSnack({ msg: 'Color updated', type: 'SUCCESS' });
               loadTasks();
             }
@@ -412,8 +440,10 @@
             const taskId = e.target.dataset.taskId;
             const item = activeTasks.find(i => i.task.id === taskId);
             if (item) {
+              delete taskColorsSynced[taskId];
               const newNotes = setColorInNotes(item.task.notes, taskId, '');
               await PluginAPI.updateTask(taskId, { notes: newNotes });
+              await PluginAPI.persistDataSynced(JSON.stringify(taskColorsSynced), TASK_COLORS_KEY);
               PluginAPI.showSnack({ msg: 'Color cleared', type: 'INFO' });
               loadTasks();
             }
@@ -426,15 +456,16 @@
       }
     }
 
-    function initSidePanel() {
+    async function initSidePanel() {
+      await loadTaskColors();
       let searchTimeout = null;
       const searchInput = document.getElementById('searchInput');
       if (searchInput) {
         searchInput.addEventListener('input', () => {
-          log('Search input changed:', searchInput.value);
+          log('Search input changed');
           if (searchTimeout) clearTimeout(searchTimeout);
           searchTimeout = setTimeout(() => {
-            log('Running search for:', searchInput.value);
+            log('Running search');
             loadTasks();
           }, 200);
         });
@@ -445,7 +476,7 @@
       const filterSelect = document.getElementById('filterSelect');
       if (filterSelect) {
         filterSelect.addEventListener('change', () => {
-          log('Filter changed:', filterSelect.value);
+          log('Filter changed');
           loadTasks();
         });
       } else {
@@ -455,7 +486,7 @@
       const sortSelect = document.getElementById('sortSelect');
       if (sortSelect) {
         sortSelect.addEventListener('change', () => {
-          log('Sort changed:', sortSelect.value);
+          log('Sort changed');
           loadTasks();
         });
       } else {
@@ -468,6 +499,7 @@
 
       PluginAPI.registerHook(PluginAPI.Hooks.PERSISTED_DATA_CHANGED, async () => {
         log('PERSISTED_DATA_CHANGED in iframe');
+        await loadTaskColors();
         await loadTasks();
       });
 
@@ -549,7 +581,7 @@
                 PluginAPI.showSnack({ msg: 'No tags found', type: 'WARNING' });
                 return;
               }
-              
+            
             const rowsHtml = tags.map(tag => {
               const defaultColor = tag.color || '#000000';
               const pluginColor = tagColors[tag.id] || defaultColor;
@@ -639,6 +671,53 @@
           console.error('[TaskColor] Error with tag colors:', error);
           PluginAPI.showSnack({ msg: 'Failed to open tag colors: ' + error.message, type: 'ERROR' });
         }
+      });
+
+      document.getElementById('btnSettingsPanel').addEventListener('click', async () => {
+        const htmlContent = '<div style="padding:8px 0;">' +
+          '<p style="margin:0 0 12px 0;color:var(--text-color-muted);">Migrate legacy task colors from task.notes into synced plugin storage and clean up the notes marker.</p>' +
+          '<button id="btnMigrateSettings" style="background:var(--c-primary);color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Migrate old tasks colors to Storage</button>' +
+        '</div>';
+
+        await PluginAPI.openDialog({
+          title: 'Task Color Settings',
+          htmlContent: htmlContent,
+          buttons: [
+            { label: 'Close' }
+          ]
+        });
+
+        document.getElementById('btnMigrateSettings')?.addEventListener('click', async () => {
+          try {
+            const tasks = await PluginAPI.getTasks();
+            let migrated = 0;
+            let cleaned = 0;
+
+            for (const task of tasks) {
+              const notes = task.notes || '';
+              const markerIdx = notes.indexOf(MARKER);
+              if (markerIdx === -1) continue;
+
+              const color = getCurrentColor(notes, task.id);
+              if (color) {
+                migrated++;
+              }
+
+              const newNotes = setColorInNotes(notes, task.id, '');
+              if (newNotes !== notes) {
+                await PluginAPI.updateTask(task.id, { notes: newNotes });
+                cleaned++;
+              }
+            }
+
+            await PluginAPI.persistDataSynced(JSON.stringify(taskColorsSynced), TASK_COLORS_KEY);
+            PluginAPI.showSnack({ msg: 'Migration complete. Migrated: ' + migrated + ', Cleaned: ' + cleaned, type: 'SUCCESS' });
+            await loadTasks();
+          } catch (error) {
+            console.error('[TaskColor] Migration failed:', error);
+            PluginAPI.showSnack({ msg: 'Migration failed: ' + error.message, type: 'ERROR' });
+          }
+        });
       });
 
       window.addEventListener('message', async (event) => {

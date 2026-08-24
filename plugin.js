@@ -1,4 +1,7 @@
 const MARKER = '__task_colors__=';
+const TASK_COLORS_KEY = 'taskColors';
+
+let taskColorsSynced = {};
 
 function escapeHtml(str) {
   return str
@@ -8,7 +11,25 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+async function loadTaskColors() {
+  try {
+    const saved = await PluginAPI.loadSyncedData(TASK_COLORS_KEY);
+    if (saved) {
+      taskColorsSynced = JSON.parse(saved);
+    } else {
+      taskColorsSynced = {};
+    }
+  } catch (e) {
+    taskColorsSynced = {};
+  }
+}
+
 function getCurrentColor(notes, taskId) {
+  // Primary source: synced plugin storage
+  if (taskColorsSynced && taskColorsSynced[taskId]) {
+    return taskColorsSynced[taskId];
+  }
+  // Backport/fallback: legacy notes marker
   if (!notes) return '';
   const markerIdx = notes.indexOf(MARKER);
   if (markerIdx === -1) return '';
@@ -17,9 +38,41 @@ function getCurrentColor(notes, taskId) {
   const jsonStr = jsonEnd === -1 ? notes.substring(jsonStart) : notes.substring(jsonStart, jsonEnd);
   try {
     const data = JSON.parse(jsonStr);
-    return data[taskId] || '';
+    const legacy = data[taskId] || '';
+    if (legacy) {
+      // Backport: migrate legacy note color into synced storage
+      saveTaskColor(taskId, legacy, true);
+    }
+    return legacy;
   } catch (e) {
     return '';
+  }
+}
+
+async function saveTaskColor(taskId, color, silent = false) {
+  if (color) {
+    taskColorsSynced[taskId] = color;
+  } else {
+    delete taskColorsSynced[taskId];
+  }
+  await PluginAPI.persistDataSynced(JSON.stringify(taskColorsSynced), TASK_COLORS_KEY);
+  if (!silent) {
+    markColorRefreshDirty();
+  }
+}
+
+async function clearColorFromNotes(taskId) {
+  const tasks = await PluginAPI.getTasks();
+  for (const task of tasks) {
+    if (task.id !== taskId) continue;
+    const notes = task.notes || '';
+    const markerIdx = notes.indexOf(MARKER);
+    if (markerIdx === -1) return;
+    const newNotes = setColorInNotes(notes, taskId, '');
+    if (newNotes !== notes) {
+      await PluginAPI.updateTask(taskId, { notes: newNotes });
+    }
+    return;
   }
 }
 
@@ -131,9 +184,9 @@ function applyColorToTaskElement(taskId, color, taskTitle) {
       });
       
       if (matched > 0) {
-        PluginAPI.log.info('[TaskColor] Title fallback matched', matched, 'cards for task:', taskId, 'title:', taskTitle);
+        PluginAPI.log.info('[TaskColor] Title fallback matched', matched, 'cards for task:', taskId);
       } else {
-        PluginAPI.log.warn('[TaskColor] Title fallback found NO match for task:', taskId, 'title:', taskTitle);
+        PluginAPI.log.warn('[TaskColor] Title fallback found NO match for task:', taskId);
       }
     }
 
@@ -473,15 +526,14 @@ async function pickColorForTask(task) {
     const currentColor = getCurrentColor(task.notes, task.id) || '#000000';
     const chosenColor = await openColorPickerDialog(currentColor);
     
-  if (chosenColor) {
-    lastPickedColor = chosenColor;
-    saveFavorite(chosenColor);
-    
-    const newNotes = setColorInNotes(task.notes, task.id, chosenColor);
-    PluginAPI.updateTask(task.id, { notes: newNotes });
-    PluginAPI.showSnack({ msg: 'Color saved', type: 'SUCCESS' });
-    markColorRefreshDirty();
-  }
+    if (chosenColor) {
+      lastPickedColor = chosenColor;
+      saveFavorite(chosenColor);
+      await saveTaskColor(task.id, chosenColor);
+      await clearColorFromNotes(task.id);
+      PluginAPI.showSnack({ msg: 'Color saved', type: 'SUCCESS' });
+      markColorRefreshDirty();
+    }
   } catch (e) {
     PluginAPI.showSnack({ msg: 'Failed to pick color: ' + e.message, type: 'ERROR' });
   }
@@ -669,7 +721,7 @@ async function handleColorAction() {
             const searchQuery = searchInput ? searchInput.value.toLowerCase().trim() : '';
             const projectId = projectFilter ? projectFilter.value : '';
             
-            PluginAPI.log.info('[TaskColor] Task picker selected:', selectedTaskId, 'search:', searchQuery, 'project:', projectId);
+            PluginAPI.log.info('[TaskColor] Task picker selected:', selectedTaskId);
           }
         }
       ]
@@ -690,7 +742,7 @@ async function handleColorAction() {
     }
   } catch (e) {
     PluginAPI.showSnack({ msg: 'Failed to open color picker: ' + e.message, type: 'ERROR' });
-    PluginAPI.log.error('[TaskColor] Error:', e);
+    PluginAPI.log.error('[TaskColor] Error');
   }
 }
 
@@ -706,8 +758,10 @@ function register() {
     markColorRefreshDirty();
   });
 
-  // Removed PERSISTED_DATA_CHANGED from plugin.js to avoid extra getTasks() calls.
-  // The side panel (index.html) still listens for it to refresh its own UI.
+  PluginAPI.registerHook(PluginAPI.Hooks.PERSISTED_DATA_CHANGED, async () => {
+    await loadTaskColors();
+    markColorRefreshDirty();
+  });
 
   PluginAPI.registerHeaderButton({
     label: 'Task Color',
@@ -735,7 +789,7 @@ function register() {
 
   // Listen for tag colors requests/results from iframe
   window.addEventListener('message', async (event) => {
-    PluginAPI.log.info('[TaskColor] Host received message:', event.data);
+    PluginAPI.log.info('[TaskColor] Host received message');
     if (event.data && event.data.type === 'open-tag-colors') {
       try {
         PluginAPI.log.info('[TaskColor] Host received open-tag-colors request');
@@ -828,7 +882,7 @@ async function openHostTagColorsDialog(event) {
             tagColors = newTagColors;
             markColorRefreshDirty();
             
-            PluginAPI.log.info('[TaskColor] Host saved tag colors:', newTagColors);
+            PluginAPI.log.info('[TaskColor] Host saved tag colors');
             return newTagColors;
           } catch (e) {
             PluginAPI.showSnack({ msg: 'Error saving: ' + e.message, type: 'ERROR' });
@@ -863,6 +917,7 @@ async function openHostTagColorsDialog(event) {
 async function init() {
   try {
     await loadTagColors();
+    await loadTaskColors();
     await loadFavorites();
     register();
   } catch (e) {

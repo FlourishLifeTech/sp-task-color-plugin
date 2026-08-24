@@ -22,14 +22,13 @@ Set background colors on tasks, with tag-based coloring, search/filter/sort in t
 - **Header button**: click the palette icon (or press `Ctrl+Shift+P`) to open the color picker for the current task
 - **Task picker**: open the picker dialog to search and select any task by title/project/color
 - **Tag colors**: assign a default background color to tags; tagged tasks inherit that color automatically
-- **Colors persist** in `task.notes` under `__task_colors__=`, so they survive sync and export
+- **Colors persist** in synced plugin storage (`persistDataSynced`) so they survive sync and export. Existing colors stored in `task.notes` are automatically backported on first load.
+- **Migrate button**: in the side panel, click **Settings** → **Migrate old tasks colors to Storage** to backport all legacy `task.notes` colors into synced storage and clean the notes marker from all tasks.
 
 ## How It Works
 
-- Colors are stored in a marker line inside each task’s notes:
-  ```
-  __task_colors__={"taskId":"#hex"}
-  ```
+- Colors are primarily stored in synced plugin storage under the key `taskColors`.
+- On first load, colors previously stored in `task.notes` under `__task_colors__=` are automatically backported into synced storage.
 - The plugin hooks `CURRENT_TASK_CHANGE` and `ANY_TASK_UPDATE` to refresh colors automatically.
 - DOM coloring runs in `plugin.js` (host-side) to survive Angular re-renders.
 - Polling is limited to 5 seconds with a dirty-flag pattern to avoid excessive `getTasks()` calls.
