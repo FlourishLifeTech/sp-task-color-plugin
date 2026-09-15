@@ -427,7 +427,9 @@
             if (item) {
               taskColorsSynced[taskId] = color;
               const newNotes = setColorInNotes(item.task.notes, taskId, '');
-              await PluginAPI.updateTask(taskId, { notes: newNotes });
+              if (newNotes !== item.task.notes) {
+                await PluginAPI.updateTask(taskId, { notes: newNotes });
+              }
               await PluginAPI.persistDataSynced(JSON.stringify(taskColorsSynced), TASK_COLORS_KEY);
               PluginAPI.showSnack({ msg: 'Color updated', type: 'SUCCESS' });
               loadTasks();
@@ -442,7 +444,9 @@
             if (item) {
               delete taskColorsSynced[taskId];
               const newNotes = setColorInNotes(item.task.notes, taskId, '');
-              await PluginAPI.updateTask(taskId, { notes: newNotes });
+              if (newNotes !== item.task.notes) {
+                await PluginAPI.updateTask(taskId, { notes: newNotes });
+              }
               await PluginAPI.persistDataSynced(JSON.stringify(taskColorsSynced), TASK_COLORS_KEY);
               PluginAPI.showSnack({ msg: 'Color cleared', type: 'INFO' });
               loadTasks();
